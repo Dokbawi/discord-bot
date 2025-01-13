@@ -191,21 +191,21 @@ client.on('messageCreate', async (message) => {
                 const title = collected.first().content;
 
                 const videoEmbed = new EmbedBuilder()
-                    .setTitle(title)
-                    .setAuthor({
-                        name: message.author.username,
-                        iconURL: message.author.displayAvatarURL()
-                    })
-                    .setDescription(`
-                        업로더: ${message.author.username}
-                        파일명: ${videoAttachment.name}
-                        
-                        🎬 [영상 보기](${videoAttachment.url})
-                    `)
-                    .addFields(
-                        { name: '좋아요', value: '0', inline: true }
-                    )
-                    .setTimestamp();
+                .setTitle(`[클릭하여 메시지로 이동](${postedVideo.url}) ${title}`) // title을 메시지 링크로 변경
+                .setAuthor({
+                    name: message.author.username,
+                    iconURL: message.author.displayAvatarURL()
+                })
+                .setDescription(`
+                    업로더: ${message.author.username}
+                    파일명: ${videoAttachment.name}
+                    
+                    🎬 [영상 보기](${videoAttachment.url})
+                `)
+                .addFields(
+                    { name: '좋아요', value: '0', inline: true }
+                )
+                .setTimestamp();
 
                 const postedVideo = await message.channel.send({
                     embeds: [videoEmbed]
