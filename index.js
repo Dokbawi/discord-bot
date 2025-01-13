@@ -108,19 +108,19 @@ client.on('messageCreate', async (message) => {
         if (!guildVideos) return message.reply('저장된 비디오가 없습니다.');
 
         const searchResults = Array.from(guildVideos.values())
-            .filter(video => video.title.toLowerCase().includes(searchQuery))
-            .slice(0, 5);
-
-        if (searchResults.length === 0) return message.reply('검색 결과가 없습니다.');
-
-        const searchEmbed = new EmbedBuilder()
-            .setTitle('검색 결과')
-            .setDescription(
-                searchResults.map(video => 
-                    `[${video.title}](${video.url}) - 좋아요: ${video.likes}`
-                ).join('\n')
-            )
-            .setColor('#00FF00');
+        .filter(video => video.title.toLowerCase().includes(searchQuery))
+        .slice(0, 5);
+    
+    if (searchResults.length === 0) return message.reply('검색 결과가 없습니다.');
+    
+    const searchEmbed = new EmbedBuilder()
+        .setTitle('검색 결과')
+        .setDescription(
+            searchResults.map(video => 
+                `[${video.title}](https://discord.com/channels/${message.guildId}/${message.channelId}/${video.messageId}) - 좋아요: ${video.likes}`
+            ).join('\n')
+        )
+        .setColor('#00FF00');
 
         await message.reply({ embeds: [searchEmbed] });
     } else if (command === 'top') {
@@ -147,13 +147,13 @@ client.on('messageCreate', async (message) => {
                           period === 'year' ? '올해' : '전체';
 
         const topEmbed = new EmbedBuilder()
-            .setTitle(`${periodText} 인기 영상 TOP 5`)
-            .setDescription(
-                videos.map((video, index) => 
-                    `${index + 1}. [${video.title}](${video.url}) - 좋아요: ${video.likes}`
-                ).join('\n')
-            )
-            .setColor('#00FF00');
+        .setTitle(`${periodText} 인기 영상 TOP 5`)
+        .setDescription(
+            videos.map((video, index) => 
+                `${index + 1}. [${video.title}](https://discord.com/channels/${message.guildId}/${message.channelId}/${video.messageId}) - 좋아요: ${video.likes}`
+            ).join('\n')
+        )
+        .setColor('#00FF00');
 
         await message.reply({ embeds: [topEmbed] });
     }
@@ -187,11 +187,15 @@ client.on('messageCreate', async (message) => {
                     time: 30000,
                     errors: ['time']
                 });
-
+        
                 const title = collected.first().content;
 
+                const postedVideo = await message.channel.send({
+                    content: "영상을 처리중입니다..."
+                });
+
                 const videoEmbed = new EmbedBuilder()
-                .setTitle(`[클릭하여 메시지로 이동](${postedVideo.url}) ${title}`) // title을 메시지 링크로 변경
+                .setTitle(`[클릭하여 메시지로 이동](${postedVideo.url}) ${title}`)
                 .setAuthor({
                     name: message.author.username,
                     iconURL: message.author.displayAvatarURL()
@@ -207,9 +211,13 @@ client.on('messageCreate', async (message) => {
                 )
                 .setTimestamp();
 
-                const postedVideo = await message.channel.send({
+
+                await postedVideo.edit({
+                    content: null,
+                    files: [videoAttachment],
                     embeds: [videoEmbed]
                 });
+                
                 await postedVideo.react('👍');
 
                 const thread = await postedVideo.startThread({
@@ -231,7 +239,9 @@ client.on('messageCreate', async (message) => {
                     likes: 0,
                     author: message.author.id,
                     threadId: thread.id,
-                    fileName: videoAttachment.name
+                    fileName: videoAttachment.name,
+                    messageId: postedVideo.id,  
+                    channelId: message.channelId  
                 });
 
                 await titlePrompt.delete();
