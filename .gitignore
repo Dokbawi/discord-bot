@@ -1,4 +1,5 @@
-config.json
+config*.json
 node_modules
 serverSettings.json
 videoData.json
+node-bot-credential.json
