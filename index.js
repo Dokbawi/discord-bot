@@ -27,7 +27,7 @@ const { TOKEN, RABBITMQ_URL, BACKEND_SERVER_URL } = config;
 
 const CONSTANTS = {
   EXCHANGE_NAME: "video_exchange",
-  QUEUE_NAME: "video.result.queue",
+  QUEUE_PREFIX: "video.result",
   CONFIG_FILE: "./channelConfig.json",
   TEMP_DIR: path.resolve("./temp"),
   VIDEO_EXTENSIONS: [".mp4", ".mov", ".avi", ".mkv"],
@@ -94,6 +94,10 @@ class ConfigManager {
 
   isVideoChannel(serverId, channelId) {
     return this.videoChannels[serverId] === channelId;
+  }
+
+  getServerIds() {
+    return Object.keys(this.videoChannels);
   }
 }
 
@@ -182,7 +186,7 @@ class DiscordManager {
 
       await FileManager.ensureTempDir();
 
-      const fileName = FileManager.generateSafeFileName(videoUrl);
+      const fileName = FileManager.generateSafeFileName(videoUrl) + ".mp4";
       tempFilePath = path.join(CONSTANTS.TEMP_DIR, fileName);
 
       console.log(`📄 임시 파일 경로: ${tempFilePath}`);
@@ -203,7 +207,7 @@ class DiscordManager {
         throw new Error(
           `파일 크기가 너무 큽니다. (${Math.round(
             stats.size / 1024 / 1024
-          )}MB > 25MB)`
+          )}MB > 10MB)`
         );
       }
 
@@ -237,12 +241,14 @@ class DiscordManager {
 
 class BackendAPI {
   static async submitVideo(data) {
+    const queueName = `${CONSTANTS.QUEUE_PREFIX}.${data.serverId}.queue`;
+
     try {
       await axios.post(
         `${BACKEND_SERVER_URL}/video`,
         {
           ...data,
-          callbackQueue: CONSTANTS.QUEUE_NAME,
+          callbackQueue: queueName,
         },
         {
           timeout: 10000, // 10초 타임아웃
@@ -259,6 +265,12 @@ class RabbitMQManager {
   constructor() {
     this.connection = null;
     this.channel = null;
+    this.serverQueues = new Set(); // 생성된 큐들을 추적
+  }
+
+  // 서버별 큐 이름 생성
+  getQueueName(serverId) {
+    return `${CONSTANTS.QUEUE_PREFIX}.${serverId}.queue`;
   }
 
   async connect() {
@@ -269,14 +281,8 @@ class RabbitMQManager {
       await this.channel.assertExchange(CONSTANTS.EXCHANGE_NAME, "topic", {
         durable: true,
       });
-      await this.channel.assertQueue(CONSTANTS.QUEUE_NAME, { durable: true });
-      await this.channel.bindQueue(
-        CONSTANTS.QUEUE_NAME,
-        CONSTANTS.EXCHANGE_NAME,
-        CONSTANTS.QUEUE_NAME
-      );
 
-      console.log(`📥 RabbitMQ 연결 완료. Queue: ${CONSTANTS.QUEUE_NAME}`);
+      console.log(`📥 RabbitMQ 연결 완료`);
 
       this.connection.on("error", (err) => {
         console.error("❌ RabbitMQ 연결 오류:", err);
@@ -291,13 +297,62 @@ class RabbitMQManager {
     }
   }
 
+  // 특정 서버의 큐 설정
+  async setupServerQueue(serverId) {
+    if (!this.channel) {
+      throw new Error("RabbitMQ 채널이 초기화되지 않았습니다.");
+    }
+
+    const queueName = this.getQueueName(serverId);
+
+    if (this.serverQueues.has(queueName)) {
+      return; // 이미 설정된 큐는 건너뛰기
+    }
+
+    try {
+      await this.channel.assertQueue(queueName, { durable: true });
+      await this.channel.bindQueue(
+        queueName,
+        CONSTANTS.EXCHANGE_NAME,
+        queueName
+      );
+
+      this.serverQueues.add(queueName);
+      console.log(`📥 서버별 큐 설정 완료: ${queueName}`);
+    } catch (error) {
+      console.error(`❌ 서버별 큐 설정 실패 (${serverId}):`, error.message);
+      throw error;
+    }
+  }
+
+  // 모든 설정된 서버의 큐들을 리스닝 시작
   async startListening() {
     if (!this.channel) {
       throw new Error("RabbitMQ 채널이 초기화되지 않았습니다.");
     }
 
+    // 설정된 모든 서버의 큐에서 메시지 수신
+    for (const queueName of this.serverQueues) {
+      this.channel.consume(
+        queueName,
+        async (msg) => {
+          if (msg !== null) {
+            await this.processMessage(msg);
+          }
+        },
+        { noAck: false }
+      );
+      console.log(`👂 큐 리스닝 시작: ${queueName}`);
+    }
+  }
+
+  // 새로운 서버가 추가될 때 큐 설정 및 리스닝 시작
+  async addServerQueue(serverId) {
+    await this.setupServerQueue(serverId);
+
+    const queueName = this.getQueueName(serverId);
     this.channel.consume(
-      CONSTANTS.QUEUE_NAME,
+      queueName,
       async (msg) => {
         if (msg !== null) {
           await this.processMessage(msg);
@@ -305,6 +360,7 @@ class RabbitMQManager {
       },
       { noAck: false }
     );
+    console.log(`👂 새 서버 큐 리스닝 시작: ${queueName}`);
   }
 
   async processMessage(msg) {
@@ -322,8 +378,12 @@ class RabbitMQManager {
         throw new Error("채널 ID가 없습니다");
       }
 
+      console.log(`📋 영상 처리 중...`);
+
       if (data.success) {
-        console.log(`🎬 영상 처리 성공: ${data.videoId}`);
+        console.log(
+          `🎬 영상 처리 성공: ${data.videoId} (서버: ${data.serverId})`
+        );
 
         const caption = data.caption || `✅ 처리된 영상 (ID: ${data.videoId})`;
         await DiscordManager.uploadVideo(
@@ -332,7 +392,9 @@ class RabbitMQManager {
           caption
         );
       } else {
-        console.error(`❌ 영상 처리 실패: ${data.error}`);
+        console.error(
+          `❌ 영상 처리 실패: ${data.error} (서버: ${data.serverId})`
+        );
         await DiscordManager.sendErrorMessage(
           data.channelId,
           `영상 처리 실패: ${data.error}`
@@ -381,7 +443,15 @@ client.once("ready", async () => {
 
   try {
     await rabbitMQManager.connect();
+
+    // 설정된 모든 서버의 큐들을 초기화
+    const serverIds = configManager.getServerIds();
+    for (const serverId of serverIds) {
+      await rabbitMQManager.setupServerQueue(serverId);
+    }
+
     await rabbitMQManager.startListening();
+    console.log(`📡 ${serverIds.length}개 서버의 큐 리스닝 중...`);
   } catch (error) {
     console.error("❌ RabbitMQ 초기화 실패:", error);
     process.exit(1);
@@ -401,10 +471,25 @@ client.on("messageCreate", async (message) => {
     const serverId = message.guildId;
     const channelId = message.channelId;
 
+    // 새로운 서버인 경우 큐 설정
+    const wasNewServer = !configManager.getVideoChannel(serverId);
+
     configManager.setVideoChannel(serverId, channelId);
     await configManager.save();
 
-    return message.reply(`✅ 이 채널이 영상 처리 채널로 설정되었습니다!`);
+    // 새로운 서버면 RabbitMQ 큐도 추가
+    if (wasNewServer && rabbitMQManager.channel) {
+      try {
+        await rabbitMQManager.addServerQueue(serverId);
+        console.log(`🆕 새 서버 큐 설정 완료: ${serverId}`);
+      } catch (error) {
+        console.error(`❌ 새 서버 큐 설정 실패: ${serverId}`, error);
+      }
+    }
+
+    return message.reply(
+      `✅ 이 채널이 영상 처리 채널로 설정되었습니다! (서버 ID: ${serverId})`
+    );
   }
 
   if (message.attachments.size > 0) {
@@ -428,7 +513,9 @@ client.on("messageCreate", async (message) => {
           fileName: attachment.name,
         });
 
-        await message.reply("✅ 영상이 처리 대기열에 등록되었습니다!");
+        await message.reply(
+          `✅ 영상이 처리 대기열에 등록되었습니다! (큐: ${CONSTANTS.QUEUE_PREFIX}.${serverId}.queue)`
+        );
       } catch (error) {
         console.error("❌ 영상 제출 실패:", error.message);
         await message.reply("❌ 영상 처리 요청 중 오류가 발생했습니다.");

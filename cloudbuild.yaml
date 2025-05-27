@@ -1,4 +1,13 @@
 steps:
+  - name: gcr.io/cloud-builders/gcloud
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        mkdir env
+        secret_name="${_PROJECT_NAME}-env"
+        gcloud secrets versions access latest --secret="$secret_name" --format='get(payload.data)' | tr '_-' '/+' | base64 -d > config-prod.json
+
   - name: "gcr.io/cloud-builders/docker"
     args: ["build", "-t", "gcr.io/$PROJECT_ID/$_PROJECT_NAME:latest", "."]
 
