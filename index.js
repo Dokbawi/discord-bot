@@ -12,7 +12,7 @@ const fsSync = require("fs");
 
 const ENV = process.env.NODE_ENV || "development";
 const configFileName =
-  ENV === "production" ? "./config.prod.json" : "./config.json";
+  ENV === "production" ? "./config-prod.json" : "./config.json";
 
 let config;
 try {
