@@ -49,7 +49,6 @@ const client = new Client({
   ],
 });
 
-// 클래스로 설정 관리 분리
 class ConfigManager {
   constructor(configFile) {
     this.configFile = configFile;
@@ -140,7 +139,7 @@ class FileManager {
       method: "get",
       url: url,
       responseType: "stream",
-      timeout: 30000, // 30초 타임아웃
+      timeout: 30000,
     });
 
     response.data.pipe(writer);
@@ -191,11 +190,9 @@ class DiscordManager {
 
       console.log(`📄 임시 파일 경로: ${tempFilePath}`);
 
-      // 파일 다운로드
       await FileManager.downloadFile(videoUrl, tempFilePath);
       console.log(`✅ 비디오 다운로드 완료: ${tempFilePath}`);
 
-      // 파일 검증
       const stats = await FileManager.getFileStats(tempFilePath);
       console.log(`📊 다운로드된 파일 크기: ${stats.size} 바이트`);
 
@@ -226,7 +223,6 @@ class DiscordManager {
       );
       throw error;
     } finally {
-      // 임시 파일 정리
       if (tempFilePath) {
         await FileManager.cleanupFile(tempFilePath);
       }
@@ -251,7 +247,7 @@ class BackendAPI {
           callbackQueue: queueName,
         },
         {
-          timeout: 10000, // 10초 타임아웃
+          timeout: 10000,
         }
       );
     } catch (error) {
@@ -265,10 +261,9 @@ class RabbitMQManager {
   constructor() {
     this.connection = null;
     this.channel = null;
-    this.serverQueues = new Set(); // 생성된 큐들을 추적
+    this.serverQueues = new Set();
   }
 
-  // 서버별 큐 이름 생성
   getQueueName(serverId) {
     return `${CONSTANTS.QUEUE_PREFIX}.${serverId}.queue`;
   }
