@@ -10,6 +10,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    environment: production
     outputs:
       image-tag: ${{ steps.tag.outputs.tag }}
 
@@ -49,6 +50,7 @@ jobs:
   update-helm-chart:
     needs: build
     runs-on: ubuntu-latest
+    environment: production
     if: github.ref == 'refs/heads/main'
 
     steps:
@@ -91,6 +93,7 @@ jobs:
   notify:
     needs: [build, update-helm-chart]
     runs-on: ubuntu-latest
+    environment: production
     if: always()
 
     steps:
